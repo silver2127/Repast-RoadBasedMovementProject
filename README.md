@@ -22,6 +22,13 @@ source venv/bin/activate
 
 The dependencies are listed in `requirements.txt`.
 
+The setup script assumes you have MPI compilers (`mpicc` and `mpic++`) installed.
+On Debian or Ubuntu systems you can install them with:
+
+```bash
+sudo apt-get install openmpi-bin libopenmpi-dev
+```
+
 ## Importing Roads from OpenStreetMap
 
 An optional utility allows creating `Road` objects directly from OpenStreetMap data. The function fetches a street network using [OSMnx](https://github.com/gboeing/osmnx) and converts each edge into a road.

@@ -22,6 +22,8 @@ try:
     from repast4py.space import ContinuousPoint as cpt
     from repast4py.space import DiscretePoint as dpt
     from repast4py.space import BorderType, OccupancyType
+
+    REPAST4PY_AVAILABLE = True
 except Exception:  # pragma: no cover - repast4py may be unavailable during testing
 
     class _DummyAgent:
@@ -35,6 +37,7 @@ except Exception:  # pragma: no cover - repast4py may be unavailable during test
     create_args_parser = init_params = lambda *args, **kwargs: None
     cpt = dpt = None
     BorderType = OccupancyType = None
+    REPAST4PY_AVAILABLE = False
 BATCH_SIZE = 1000
 model = None
 RADIUSSEARCH = 20

@@ -17,6 +17,8 @@ export CC=mpicc
 export CXX=mpic++
 
 python -m pip install --upgrade pip
+# Install CPU-only PyTorch first so repast4py doesn't pull in GPU builds
+python -m pip install "torch==2.2.2+cpu" --index-url https://download.pytorch.org/whl/cpu
 python -m pip install -r requirements.txt
 
 echo "Setup complete. Activate the environment with 'source $VENV_DIR/bin/activate'"

@@ -34,3 +34,15 @@ print(len(roads))  # number of road segments retrieved
 ```
 
 Internet access is required for this example because the street network is downloaded from OpenStreetMap. If the network request fails, check your connectivity or proxy settings.
+
+## Performance Benchmarking
+
+A small benchmarking utility `benchmark_osm.py` imports road networks for a few
+places and reports how long each download and conversion takes:
+
+```bash
+python benchmark_osm.py
+```
+
+This can be useful when experimenting with different open source maps to see how
+import time scales with network size.

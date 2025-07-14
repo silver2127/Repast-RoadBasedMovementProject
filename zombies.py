@@ -2,6 +2,7 @@ import sys
 import math
 import numpy as np
 from typing import Dict, Tuple, List
+
 try:
     from mpi4py import MPI
 except Exception:  # pragma: no cover - MPI may be unavailable during testing
@@ -13,6 +14,7 @@ import numba
 from numba import int32, int64
 from numba.experimental import jitclass
 import typing
+
 try:
     from repast4py import core, space, schedule, logging, random
     from repast4py import context as ctx
@@ -21,10 +23,13 @@ try:
     from repast4py.space import DiscretePoint as dpt
     from repast4py.space import BorderType, OccupancyType
 except Exception:  # pragma: no cover - repast4py may be unavailable during testing
+
     class _DummyAgent:
         pass
+
     class _DummyCore:
         Agent = object
+
     core = _DummyCore()
     space = schedule = logging = random = ctx = None
     create_args_parser = init_params = lambda *args, **kwargs: None
@@ -34,22 +39,36 @@ BATCH_SIZE = 1000
 model = None
 RADIUSSEARCH = 20
 ROADLENGTH = 20
+
+
 @numba.jit((int64[:], int64[:]), nopython=True)
 def is_equal(a1, a2):
     return a1[0] == a2[0] and a1[1] == a2[1]
 
-def write_agent_to_csv(tick, agent_type, agent_id, x, y, status=None, filename="agents_status.csv"):
-    with open(filename, mode='a', newline='') as file:
+
+def write_agent_to_csv(
+    tick, agent_type, agent_id, x, y, status=None, filename="agents_status.csv"
+):
+    with open(filename, mode="a", newline="") as file:
         writer = csv.writer(file)
         if status is None:
             writer.writerow([tick, agent_type, agent_id, x, y])
         else:
             writer.writerow([tick, agent_type, agent_id, x, y, status])
+
+
 RADIUS = 5  # define your search radius
-RADIUSH = 10 #/???????
+RADIUSH = 10  # /???????
+
+
 @numba.jit(nopython=True)
 def get_extended_neighbors(x, y, radius):
-    extended_nghs = [(x+i, y+j) for i in range(-radius, radius+1) for j in range(-radius, radius+1) if not (i == 0 and j == 0)]
+    extended_nghs = [
+        (x + i, y + j)
+        for i in range(-radius, radius + 1)
+        for j in range(-radius, radius + 1)
+        if not (i == 0 and j == 0)
+    ]
     return extended_nghs
 
 
@@ -57,18 +76,19 @@ def get_extended_neighbors(x, y, radius):
 def distance(x1, y1, x2, y2):
     return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
 
+
 @numba.jit(nopython=True)
 def dot_product(x1, y1, x2, y2):
     return x1 * x2 + y1 * y2
 
 
 spec = [
-    ('mo', int32[:]),
-    ('no', int32[:]),
-    ('xmin', int32),
-    ('ymin', int32),
-    ('ymax', int32),
-    ('xmax', int32)
+    ("mo", int32[:]),
+    ("no", int32[:]),
+    ("xmin", int32),
+    ("ymin", int32),
+    ("ymax", int32),
+    ("xmax", int32),
 ]
 
 
@@ -96,36 +116,47 @@ class GridNghFinder:
         ys = ys[yd]
 
         return np.stack((xs, ys, np.zeros(len(ys), dtype=np.int32)), axis=-1)
-   
-   
 
-   
-    
+
 @dataclass
 class Road:
-    #model: Any
+    """Represents a road segment."""
+
     start: Tuple[int, int]
     end: Tuple[int, int]
     capacity: int = 12
     utilization: int = 0
     oldtick: int = 0
-    
-    
+    closed_ticks_remaining: int = 0
+
+    def close(self, duration: int = 1):
+        """Close the road for ``duration`` ticks."""
+        self.closed_ticks_remaining = max(duration, 1)
+
+    def open(self):
+        """Open the road immediately."""
+        self.closed_ticks_remaining = 0
+
     def refreshroad(self, tick):
         if self.utilization == self.capacity and self.oldtick != tick:
             self.utilization = self.utilization - self.capacity
             print("Refreshed successfully")
-            
+
         return
-    
-    def traverse_road(self, agent: 'Human', model, step_size=10):
+
+    def traverse_road(self, agent: "Human", model, step_size=10):
+        if self.closed_ticks_remaining > 0:
+            return
         if self.utilization == self.capacity:
             self.refreshroad(model.runner.schedule.tick)
-            print("notraversef")
             return
         current_position = model.space.get_location(agent)
-        dir_x = (self.end[0] - current_position.x) / distance(current_position.x, current_position.y, self.end[0], self.end[1])
-        dir_y = (self.end[1] - current_position.y) / distance(current_position.x, current_position.y, self.end[0], self.end[1])
+        dir_x = (self.end[0] - current_position.x) / distance(
+            current_position.x, current_position.y, self.end[0], self.end[1]
+        )
+        dir_y = (self.end[1] - current_position.y) / distance(
+            current_position.x, current_position.y, self.end[0], self.end[1]
+        )
         new_x = current_position.x + dir_x * step_size
         new_y = current_position.y + dir_y * step_size
         model.move(agent, new_x, new_y)
@@ -133,54 +164,55 @@ class Road:
         self.refreshroad(model.runner.schedule.tick)
         self.oldtick = model.runner.schedule.tick
 
-    def traverse_backwards(self, agent: 'Human', model, step_size=10):
+    def traverse_backwards(self, agent: "Human", model, step_size=10):
+        if self.closed_ticks_remaining > 0:
+            return
         if self.utilization == self.capacity:
-            print("back")
             return
         current_position = model.space.get_location(agent)
-        dir_x = (self.start[0] - current_position.x) / distance(current_position.x, current_position.y, self.start[0], self.start[1])
-        dir_y = (self.start[1] - current_position.y) / distance(current_position.x, current_position.y, self.start[0], self.start[1])
+        dir_x = (self.start[0] - current_position.x) / distance(
+            current_position.x, current_position.y, self.start[0], self.start[1]
+        )
+        dir_y = (self.start[1] - current_position.y) / distance(
+            current_position.x, current_position.y, self.start[0], self.start[1]
+        )
         new_x = current_position.x + dir_x * step_size
         new_y = current_position.y + dir_y * step_size
         model.move(agent, new_x, new_y)
         self.utilization += 1
         self.refreshroad(model.runner.schedule.tick)
         self.oldtick = model.runner.schedule.tick
-        
-    
-            
-            
 
 
-
-        
-  
 def generate_grid_roads(max_width: int, max_height: int, road_length: int = ROADLENGTH):
-            roads = []
-                    
-            # Vertical roads
-            for x in range(0, max_width, road_length):
-                    start_y = 0
-                    end_y = start_y + road_length
-                        
-                    while end_y <= max_height:
-                        roads.append(Road((x, start_y), (x, end_y)))
-                        start_y = end_y
-                        end_y = start_y + road_length
+    roads = []
 
-                    # Horizontal roads
-            for y in range(0, max_height, road_length):
-                    start_x = 0
-                    end_x = start_x + road_length
-                        
-                    while end_x <= max_width:
-                        roads.append(Road((start_x, y), (end_x, y)))
-                        start_x = end_x
-                        end_x = start_x + road_length
-                    
-            return roads
+    # Vertical roads
+    for x in range(0, max_width, road_length):
+        start_y = 0
+        end_y = start_y + road_length
 
-def import_osm_roads(place: str = None, network_type: str = "drive", graph=None) -> List[Road]:
+        while end_y <= max_height:
+            roads.append(Road((x, start_y), (x, end_y)))
+            start_y = end_y
+            end_y = start_y + road_length
+
+        # Horizontal roads
+    for y in range(0, max_height, road_length):
+        start_x = 0
+        end_x = start_x + road_length
+
+        while end_x <= max_width:
+            roads.append(Road((start_x, y), (end_x, y)))
+            start_x = end_x
+            end_x = start_x + road_length
+
+    return roads
+
+
+def import_osm_roads(
+    place: str = None, network_type: str = "drive", graph=None
+) -> List[Road]:
     """Import road data from OpenStreetMap and return it as a list of ``Road`` objects.
 
     Parameters
@@ -219,6 +251,7 @@ def import_osm_roads(place: str = None, network_type: str = "drive", graph=None)
 
     return roads
 
+
 class Human(core.Agent):
     """The Human Agent
 
@@ -247,15 +280,15 @@ class Human(core.Agent):
 
     def infect(self):
         self.infected = True
-    
+
     def choose_best_road_towards_target(self, target_x=500, target_y=500):
         # Get the agent's current position
-        '''
+        """
         current_position = model.space.get_location(self)
-        
+
         # Find all nearby roads
         nearby_roads = model.find_nearby_roads(current_position.x, current_position.y)
-        
+
         best_road = None
         best_distance = float('inf')
         for road in nearby_roads:
@@ -263,7 +296,7 @@ class Human(core.Agent):
             current_dist = distance(current_position.x, current_position.y, target_x, target_y)
             end_dist = distance(road.end[0], road.end[1], target_x, target_y)
             start_dist = distance(road.start[0], road.start[1], target_x, target_y)
-            
+
             # If moving along this road gets us closer to the target
             if end_dist < current_dist or start_dist < current_dist:
                 # Check if it's the best option so far
@@ -271,12 +304,13 @@ class Human(core.Agent):
                 if road_dist < best_distance:
                     best_distance = road_dist
                     best_road = road
-                    
+
         return best_road
-        '''
+        """
         current_position = model.space.get_location(self)
-        return model.find_nth_best_road(current_position.x, current_position.y,1)
-    '''
+        return model.find_nth_best_road(current_position.x, current_position.y, 1)
+
+    """
     def step(self):
         cpt = model.space.get_location(self)
         
@@ -322,14 +356,17 @@ class Human(core.Agent):
         
 
         return  
-        '''
+        """
+
     def step(self):
         cpt = model.space.get_location(self)
-        
-        model.log_agent_data(model.runner.schedule.tick, "Human", self.uid[0], cpt.x, cpt.y)
-            # Sample target point
+
+        model.log_agent_data(
+            model.runner.schedule.tick, "Human", self.uid[0], cpt.x, cpt.y
+        )
+        # Sample target point
         x0, y0 = 500, 500
-        
+
         # Get the agent's current position
         current_position = model.space.get_location(self)
 
@@ -341,27 +378,28 @@ class Human(core.Agent):
         # If no suitable road is found, return
         if best_road == None:
             return
-        if distance(current_position.x, current_position.y, best_road.end[0], best_road.end[1]) < \
-        distance(current_position.x, current_position.y, best_road.start[0], best_road.start[1]):
-            best_road.traverse_backwards(self,model)
+        if distance(
+            current_position.x, current_position.y, best_road.end[0], best_road.end[1]
+        ) < distance(
+            current_position.x,
+            current_position.y,
+            best_road.start[0],
+            best_road.start[1],
+        ):
+            best_road.traverse_backwards(self, model)
         else:
-            best_road.traverse_road(self,model)
+            best_road.traverse_road(self, model)
 
-        
     # cooler roads pathfinding closed roads, prefered roads etc..
     # visualizing roads.
     # less roads
-    # agents are cars 
+    # agents are cars
     # Certain agents for certain roads?
     # roads can get to capacity
     # Routes to take that are prefered "Via alert? "
-    # Too hard to turn around? road clogging from backing 
+    # Too hard to turn around? road clogging from backing
     # Accidents
-    # Things getting clog 
-
-
-            
-       
+    # Things getting clog
 
 
 class Zombie(core.Agent):
@@ -377,7 +415,7 @@ class Zombie(core.Agent):
     def step(self):
         grid = model.grid
         pt = grid.get_location(self)
-        #nghs = model.ngh_finder.find(pt.x, pt.y)  # include_origin=True)
+        # nghs = model.ngh_finder.find(pt.x, pt.y)  # include_origin=True)
         nghs = get_extended_neighbors(pt.x, pt.y, RADIUS)
         at = dpt(0, 0)
         maximum = [[], -(sys.maxsize - 1)]
@@ -392,11 +430,11 @@ class Zombie(core.Agent):
                 maximum[1] = count
             elif count == maximum[1]:
                 maximum[0].append(ngh)
-        
+
         max_ngh = maximum[0][random.default_rng.integers(0, len(maximum[0]))]
 
         if not is_equal(np.array(max_ngh), pt.coordinates):
-            #direction = (max_ngh - pt.coordinates[0:3]) * 0.25
+            # direction = (max_ngh - pt.coordinates[0:3]) * 0.25
             direction = (max_ngh - pt.coordinates[0:2]) * 0.25
 
             cpt = model.space.get_location(self)
@@ -404,13 +442,13 @@ class Zombie(core.Agent):
             model.move(self, cpt.x + direction[0], cpt.y + direction[1])
             # timer.stop_timer('zombie_move')
         cpt = model.space.get_location(self)
-       # write_agent_to_csv(model.runner.schedule.tick, "Zombie", self.uid[0], cpt.x, cpt.y)
+        # write_agent_to_csv(model.runner.schedule.tick, "Zombie", self.uid[0], cpt.x, cpt.y)
         pt = grid.get_location(self)
         for obj in grid.get_agents(pt):
             if obj.uid[1] == Human.TYPE:
                 obj.infect()
                 break
-        
+
 
 agent_cache = {}
 
@@ -459,6 +497,7 @@ class Counts:
     """Dataclass used by repast4py aggregate logging to record
     the number of Humans and Zombies after each tick.
     """
+
     humans: int = 0
     zombies: int = 0
 
@@ -472,25 +511,42 @@ class Model:
         self.agent_logs = []
         self.runner = schedule.init_schedule_runner(comm)
         self.runner.schedule_repeating_event(1, 1, self.step)
-        self.runner.schedule_stop(params['stop.at'])
+        self.runner.schedule_stop(params["stop.at"])
         self.runner.schedule_end_event(self.at_end)
 
-        box = space.BoundingBox(0, params['world.width'], 0, params['world.height'], 0, 0)
-        self.grid = space.SharedGrid('grid', bounds=box, borders=BorderType.Sticky, occupancy=OccupancyType.Multiple,
-                                     buffer_size=2, comm=comm)
+        box = space.BoundingBox(
+            0, params["world.width"], 0, params["world.height"], 0, 0
+        )
+        self.grid = space.SharedGrid(
+            "grid",
+            bounds=box,
+            borders=BorderType.Sticky,
+            occupancy=OccupancyType.Multiple,
+            buffer_size=2,
+            comm=comm,
+        )
         self.context.add_projection(self.grid)
-        self.space = space.SharedCSpace('space', bounds=box, borders=BorderType.Sticky, occupancy=OccupancyType.Multiple,
-                                        buffer_size=2, comm=comm, tree_threshold=100)
+        self.space = space.SharedCSpace(
+            "space",
+            bounds=box,
+            borders=BorderType.Sticky,
+            occupancy=OccupancyType.Multiple,
+            buffer_size=2,
+            comm=comm,
+            tree_threshold=100,
+        )
         self.context.add_projection(self.space)
         self.ngh_finder = GridNghFinder(0, 0, box.xextent, box.yextent)
 
         self.counts = Counts()
         loggers = logging.create_loggers(self.counts, op=MPI.SUM, rank=self.rank)
-        self.data_set = logging.ReducingDataSet(loggers, self.comm, params['counts_file'])
+        self.data_set = logging.ReducingDataSet(
+            loggers, self.comm, params["counts_file"]
+        )
 
         world_size = comm.Get_size()
 
-        total_human_count = params['human.count']
+        total_human_count = params["human.count"]
         pp_human_count = int(total_human_count / world_size)
         if self.rank < total_human_count % world_size:
             pp_human_count += 1
@@ -499,11 +555,15 @@ class Model:
         for i in range(pp_human_count):
             h = Human(i, self.rank)
             self.context.add(h)
-            x = random.default_rng.uniform(local_bounds.xmin, local_bounds.xmin + local_bounds.xextent)
-            y = random.default_rng.uniform(local_bounds.ymin, local_bounds.ymin + local_bounds.yextent)
+            x = random.default_rng.uniform(
+                local_bounds.xmin, local_bounds.xmin + local_bounds.xextent
+            )
+            y = random.default_rng.uniform(
+                local_bounds.ymin, local_bounds.ymin + local_bounds.yextent
+            )
             self.move(h, x, y)
 
-        total_zombie_count = params['zombie.count']
+        total_zombie_count = params["zombie.count"]
         pp_zombie_count = int(total_zombie_count / world_size)
         if self.rank < total_zombie_count % world_size:
             pp_zombie_count += 1
@@ -511,17 +571,21 @@ class Model:
         for i in range(pp_zombie_count):
             zo = Zombie(i, self.rank)
             self.context.add(zo)
-            x = random.default_rng.uniform(local_bounds.xmin, local_bounds.xmin + local_bounds.xextent)
-            y = random.default_rng.uniform(local_bounds.ymin, local_bounds.ymin + local_bounds.yextent)
+            x = random.default_rng.uniform(
+                local_bounds.xmin, local_bounds.xmin + local_bounds.xextent
+            )
+            y = random.default_rng.uniform(
+                local_bounds.ymin, local_bounds.ymin + local_bounds.yextent
+            )
             self.move(zo, x, y)
 
         self.zombie_id = pp_zombie_count
-        with open("agents_status.csv", mode='w', newline='') as file:
+        with open("agents_status.csv", mode="w", newline="") as file:
             writer = csv.writer(file)
             writer.writerow(["Tick", "Agent Type", "Agent ID", "X", "Y", "Status"])
         # Generate the roads
-        self.roads = generate_grid_roads(params['world.width'], params['world.height'])
-        
+        self.roads = generate_grid_roads(params["world.width"], params["world.height"])
+
         # Initialize road points and mapping for KD-Tree
         self.road_points = []
         self.road_mapping = {}
@@ -534,20 +598,18 @@ class Model:
         self.tree = KDTree(self.road_points)
         self.kdtree = KDTree(self.road_points)
 
-        
     def get_all_roads(self):
-        
+
         return self.roads
-    
+
     def find_nearby_roads(self, x, y, radius=RADIUSSEARCH):
-            
         """Find all roads within a given radius of a point (x, y) using KDTree."""
-        
+
         nearby_road_indices = self.tree.query_ball_point([x, y], radius)
-        
+
         return [self.roads[index] for index in nearby_road_indices]
 
-   # import numpy as np
+    # import numpy as np
 
     def find_nth_best_road(self, x, y, n, destination_x=500, destination_y=500):
         if n <= 0:
@@ -556,10 +618,15 @@ class Model:
         # Calculate the Euclidean distance from the midpoint of each road to the destination
         road_distances = []
         for road in self.roads:
-            distance_start = np.sqrt((destination_x - road.start[0])**2 + (destination_y - road.start[1])**2)
-            distance_end = np.sqrt((destination_x - road.end[0])**2 + (destination_y - road.end[1])**2)
+            distance_start = np.sqrt(
+                (destination_x - road.start[0]) ** 2
+                + (destination_y - road.start[1]) ** 2
+            )
+            distance_end = np.sqrt(
+                (destination_x - road.end[0]) ** 2 + (destination_y - road.end[1]) ** 2
+            )
             distance = min(distance_start, distance_end)
-            #distance = np.sqrt((destination_x - midpoint_x)**2 + (destination_y - midpoint_y)**2)
+            # distance = np.sqrt((destination_x - midpoint_x)**2 + (destination_y - midpoint_y)**2)
             road_distances.append(distance)
 
         # Sort the road distances and indices in ascending order (shortest distances first)
@@ -567,53 +634,57 @@ class Model:
 
         # Check if n is within the bounds of the list
         if n > len(sorted_indices):
-            raise ValueError(f"Cannot find the {n}th best road as there are only {len(sorted_indices)} roads.")
+            raise ValueError(
+                f"Cannot find the {n}th best road as there are only {len(sorted_indices)} roads."
+            )
 
         # Return the road with the nth-shortest distance (1-indexed)
         return self.roads[sorted_indices[n - 1]]
 
-
-    
     def log_agent_data(self, tick, agent_type, agent_id, x, y):
         # Append to the agent_logs but don't write to CSV here
         print(f"{tick} {x} {y}")
         self.agent_logs.append([tick, agent_type, agent_id, x, y])
 
-    #def find_nearest_road(self, x, y):
-            # Get the index of the nearest road point
-        #nearest_point_index = self.kdtree.query([x, y])[1]
-        # Return the road associated with the nearest point
-       #return self.road_mapping[self.road_points[nearest_point_index]]
+    # def find_nearest_road(self, x, y):
+    # Get the index of the nearest road point
+    # nearest_point_index = self.kdtree.query([x, y])[1]
+    # Return the road associated with the nearest point
+    # return self.road_mapping[self.road_points[nearest_point_index]]
 
-    #def find_best_road_towards_destination(self, x, y, destination_x=500, destination_y=500):
-        # Direction vector towards the destination
-      #  dir_x = destination_x - x
-       # dir_y = destination_y - y
+    # def find_best_road_towards_destination(self, x, y, destination_x=500, destination_y=500):
+    # Direction vector towards the destination
+    #  dir_x = destination_x - x
+    # dir_y = destination_y - y
 
-        # Calculate the dot product of the road direction and the direction towards the destination
-      #  road_scores = []
-       # for road in self.roads:
-        #    road_dir_x = road.end[0] - road.start[0]
-       #     road_dir_y = road.end[1] - road.start[1]
-       #     score = dot_product(dir_x, dir_y, road_dir_x, road_dir_y)
-        #    road_scores.append(score)
+    # Calculate the dot product of the road direction and the direction towards the destination
+    #  road_scores = []
+    # for road in self.roads:
+    #    road_dir_x = road.end[0] - road.start[0]
+    #     road_dir_y = road.end[1] - road.start[1]
+    #     score = dot_product(dir_x, dir_y, road_dir_x, road_dir_y)
+    #    road_scores.append(score)
 
-        # Choose the road with the highest score
-       # best_road_index = np.argmax(road_scores)
-       # return self.roads[best_road_index]
-       
+    # Choose the road with the highest score
+    # best_road_index = np.argmax(road_scores)
+    # return self.roads[best_road_index]
+
     def choose_best_road_towards_target(self, x, y, target_x=500, target_y=500):
         # Get the agent's current position
         current_position = model.space.get_location(self)
 
         # Find all nearby roads
-        nearby_roads = model.find_nearby_roads(current_position.x, current_position.y)  # Implement a function that returns multiple nearby roads, not just the closest
+        nearby_roads = model.find_nearby_roads(
+            current_position.x, current_position.y
+        )  # Implement a function that returns multiple nearby roads, not just the closest
 
         best_road = None
-        best_distance = float('inf')
+        best_distance = float("inf")
         for road in nearby_roads:
             # Check if road leads closer to the target
-            current_dist = distance(current_position.x, current_position.y, target_x, target_y)
+            current_dist = distance(
+                current_position.x, current_position.y, target_x, target_y
+            )
             end_dist = distance(road.end[0], road.end[1], target_x, target_y)
             start_dist = distance(road.start[0], road.start[1], target_x, target_y)
 
@@ -627,8 +698,6 @@ class Model:
 
         return best_road
 
-
-    
     def at_end(self):
         self.data_set.close()
         self.write_agent_data_to_csv()
@@ -645,6 +714,15 @@ class Model:
         print(str(model.runner.schedule.tick))
         # print("{}: {}".format(self.rank, len(self.context.local_agents)))
         tick = self.runner.schedule.tick
+        # update dynamic road conditions
+        for road in self.roads:
+            if road.closed_ticks_remaining > 0:
+                road.closed_ticks_remaining -= 1
+
+        # randomly close a road for a few ticks
+        if random.default_rng.random() < 0.05:
+            road = random.default_rng.choice(self.roads)
+            road.close(duration=3)
         self.log_counts(tick)
         self.context.synchronize(restore_agent)
 
@@ -658,16 +736,17 @@ class Model:
 
         # timer.start_timer('h_step')
         dead_humans = []
-       # for h in self.context.agents(Human.TYPE):
-        #    dead, pt = h.step()
-         #   if dead:
-          #      dead_humans.append((h, pt))
 
-        #for h, pt in dead_humans:
-         #   model.remove_agent(h)
-          #  model.add_zombie(pt)
+    # for h in self.context.agents(Human.TYPE):
+    #    dead, pt = h.step()
+    #   if dead:
+    #      dead_humans.append((h, pt))
 
-        # timer.stop_timer('h_step')
+    # for h, pt in dead_humans:
+    #   model.remove_agent(h)
+    #  model.add_zombie(pt)
+
+    # timer.stop_timer('h_step')
 
     def run(self):
         self.runner.execute()
@@ -681,12 +760,12 @@ class Model:
         self.context.add(z)
         self.move(z, pt.x, pt.y)
         # print("Adding zombie at {}".format(pt))
+
     def log_agent_data(self, tick, agent_type, agent_id, x, y):
         self.agent_logs.append([tick, agent_type, agent_id, x, y])
 
-
     def write_agent_data_to_csv(self, filename="agent_data.csv"):
-        with open(filename, mode='w', newline='') as file:
+        with open(filename, mode="w", newline="") as file:
             writer = csv.writer(file)
             # Write the header
             writer.writerow(["Tick", "Agent Type", "Agent ID", "X", "Y"])
@@ -704,14 +783,27 @@ class Model:
 
         # Do the cross-rank reduction manually and print the result
         if tick % 10 == 0:
-            human_count = np.zeros(1, dtype='int64')
-            zombie_count = np.zeros(1, dtype='int64')
-            self.comm.Reduce(np.array([self.counts.humans], dtype='int64'), human_count, op=MPI.SUM, root=0)
-            self.comm.Reduce(np.array([self.counts.zombies], dtype='int64'), zombie_count, op=MPI.SUM, root=0)
-            if (self.rank == 0):
-                print("Tick: {}, Human Count: {}, Zombie Count: {}".format(tick, human_count[0], zombie_count[0]),
-                      flush=True)
-    
+            human_count = np.zeros(1, dtype="int64")
+            zombie_count = np.zeros(1, dtype="int64")
+            self.comm.Reduce(
+                np.array([self.counts.humans], dtype="int64"),
+                human_count,
+                op=MPI.SUM,
+                root=0,
+            )
+            self.comm.Reduce(
+                np.array([self.counts.zombies], dtype="int64"),
+                zombie_count,
+                op=MPI.SUM,
+                root=0,
+            )
+            if self.rank == 0:
+                print(
+                    "Tick: {}, Human Count: {}, Zombie Count: {}".format(
+                        tick, human_count[0], zombie_count[0]
+                    ),
+                    flush=True,
+                )
 
 
 def run(params: Dict):

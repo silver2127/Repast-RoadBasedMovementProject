@@ -1,7 +1,7 @@
 # AGENT Instructions
 
 ## Setup
-Run `./setup.sh` to create a virtual environment and install the dependencies. This project requires MPI tools to build `repast4py`. If the tools are not available the installation may fail.
+Run `./setup.sh` to create a virtual environment and install the dependencies. The script expects MPI compilers (`mpicc` and `mpic++`) to be available so that `repast4py` can be built. It installs a CPU-only build of PyTorch first to avoid downloading large GPU binaries.
 
 ## Testing
 Execute `pytest` from the repository root. The tests rely on the packages listed in `requirements.txt`.

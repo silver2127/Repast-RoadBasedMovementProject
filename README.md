@@ -5,3 +5,19 @@ For Configuring the file's parameters edit the YAML with how you see fit, right 
 
 Running the program only works on linux or WSL
 after running the program you can run the visualizer on  windows or linux and it will generate a series of pictures showing the x and y of each agent.
+
+## Setup
+
+Use the provided `setup.sh` script to create a virtual environment and install the required Python dependencies:
+
+```bash
+./setup.sh
+```
+
+After running the script, activate the environment with:
+
+```bash
+source venv/bin/activate
+```
+
+The dependencies are listed in `requirements.txt`.

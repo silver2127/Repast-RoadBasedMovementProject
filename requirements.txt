@@ -4,3 +4,5 @@ numba
 mpi4py
 repast4py
 matplotlib
+
+pytest

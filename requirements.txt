@@ -1,0 +1,6 @@
+numpy
+scipy
+numba
+mpi4py
+repast4py
+matplotlib

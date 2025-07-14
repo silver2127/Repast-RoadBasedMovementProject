@@ -21,3 +21,16 @@ source venv/bin/activate
 ```
 
 The dependencies are listed in `requirements.txt`.
+
+## Importing Roads from OpenStreetMap
+
+An optional utility allows creating `Road` objects directly from OpenStreetMap data. The function fetches a street network using [OSMnx](https://github.com/gboeing/osmnx) and converts each edge into a road.
+
+```python
+from zombies import import_osm_roads
+
+roads = import_osm_roads(place="Piedmont, California, USA")
+print(len(roads))  # number of road segments retrieved
+```
+
+Internet access is required for this example because the street network is downloaded from OpenStreetMap. If the network request fails, check your connectivity or proxy settings.

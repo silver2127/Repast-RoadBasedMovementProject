@@ -2,7 +2,10 @@ import sys
 import math
 import numpy as np
 from typing import Dict, Tuple, List
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except Exception:  # pragma: no cover - MPI may be unavailable during testing
+    MPI = None
 from dataclasses import dataclass
 import csv
 from scipy.spatial import KDTree
@@ -10,13 +13,23 @@ import numba
 from numba import int32, int64
 from numba.experimental import jitclass
 import typing
-from repast4py import core, space, schedule, logging, random
-from repast4py import context as ctx
-from repast4py.parameters import create_args_parser, init_params
-
-from repast4py.space import ContinuousPoint as cpt
-from repast4py.space import DiscretePoint as dpt
-from repast4py.space import BorderType, OccupancyType
+try:
+    from repast4py import core, space, schedule, logging, random
+    from repast4py import context as ctx
+    from repast4py.parameters import create_args_parser, init_params
+    from repast4py.space import ContinuousPoint as cpt
+    from repast4py.space import DiscretePoint as dpt
+    from repast4py.space import BorderType, OccupancyType
+except Exception:  # pragma: no cover - repast4py may be unavailable during testing
+    class _DummyAgent:
+        pass
+    class _DummyCore:
+        Agent = object
+    core = _DummyCore()
+    space = schedule = logging = random = ctx = None
+    create_args_parser = init_params = lambda *args, **kwargs: None
+    cpt = dpt = None
+    BorderType = OccupancyType = None
 BATCH_SIZE = 1000
 model = None
 RADIUSSEARCH = 20
@@ -165,7 +178,46 @@ def generate_grid_roads(max_width: int, max_height: int, road_length: int = ROAD
                         start_x = end_x
                         end_x = start_x + road_length
                     
-            return roads         
+            return roads
+
+def import_osm_roads(place: str = None, network_type: str = "drive", graph=None) -> List[Road]:
+    """Import road data from OpenStreetMap and return it as a list of ``Road`` objects.
+
+    Parameters
+    ----------
+    place : str, optional
+        A place name understood by OpenStreetMap (e.g. ``"Berkeley, California"``).
+        Ignored if ``graph`` is provided.
+    network_type : str, default "drive"
+        The type of street network to retrieve when using ``place``.
+    graph : networkx.MultiDiGraph, optional
+        A pre-built OSMnx graph. If given, this graph is used instead of
+        downloading data. This is useful for testing.
+
+    Returns
+    -------
+    List[Road]
+        A list of ``Road`` instances created from the OSM data.
+    """
+    try:
+        import osmnx as ox  # type: ignore
+    except ImportError as exc:
+        raise ImportError("osmnx is required to import OSM roads") from exc
+
+    if graph is None:
+        if place is None:
+            raise ValueError("Either 'place' or 'graph' must be provided")
+        graph = ox.graph_from_place(place, network_type=network_type)
+
+    roads: List[Road] = []
+    for u, v, _ in graph.edges(data=True):
+        start_node = graph.nodes[u]
+        end_node = graph.nodes[v]
+        start = (int(start_node["x"]), int(start_node["y"]))
+        end = (int(end_node["x"]), int(end_node["y"]))
+        roads.append(Road(start, end))
+
+    return roads
 
 class Human(core.Agent):
     """The Human Agent

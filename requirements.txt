@@ -4,5 +4,6 @@ numba
 mpi4py
 repast4py
 matplotlib
+osmnx
 
 pytest

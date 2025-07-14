@@ -517,8 +517,8 @@ class Model:
         if n > len(sorted_indices):
             raise ValueError(f"Cannot find the {n}th best road as there are only {len(sorted_indices)} roads.")
 
-        # Return the road with the nth-shortest distance
-        return self.roads[sorted_indices[1]]
+        # Return the road with the nth-shortest distance (1-indexed)
+        return self.roads[sorted_indices[n - 1]]
 
 
     
